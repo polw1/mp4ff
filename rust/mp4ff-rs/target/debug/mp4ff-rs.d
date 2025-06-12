@@ -1,0 +1,1 @@
+/home/pdc/dev/testeparser/mp4ff/rust/mp4ff-rs/target/debug/mp4ff-rs: /home/pdc/dev/testeparser/mp4ff/rust/mp4ff-rs/src/bit_writer.rs /home/pdc/dev/testeparser/mp4ff/rust/mp4ff-rs/src/lib.rs /home/pdc/dev/testeparser/mp4ff/rust/mp4ff-rs/src/main.rs /home/pdc/dev/testeparser/mp4ff/rust/mp4ff-rs/src/metadata.rs
