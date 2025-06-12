@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, BufReader, Cursor};
 use std::path::Path;
 
+/// Basic metadata extracted from an MP4 file.
 #[derive(Debug, Default, PartialEq)]
 pub struct Metadata {
     pub title: Option<String>,
@@ -52,6 +53,10 @@ fn read_box_header<R: Read>(r: &mut R) -> io::Result<BoxHeader> {
     Ok(BoxHeader { name: String::from_utf8_lossy(&name_buf).into_owned(), size, header_size })
 }
 
+/// Read the `moov` box of an MP4 file and return basic [`Metadata`].
+///
+/// This helper is used by the binary in `main.rs` to demonstrate metadata
+/// extraction.
 pub fn read_mp4_metadata<P: AsRef<Path>>(path: P) -> io::Result<Metadata> {
     let file = File::open(&path)?;
     let size = file.metadata()?.len();
