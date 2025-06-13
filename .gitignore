@@ -16,5 +16,8 @@ vendor/
 
 /mp4/test_data/out_init.cmfv
 
+# Ignore Rust build artifacts
+rust/mp4ff-rs/target/
+
 # VS Code settings
 .vscode/
