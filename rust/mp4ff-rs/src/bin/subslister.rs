@@ -19,18 +19,22 @@ fn main() -> io::Result<()> {
         Ok(t) => t,
         Err(_) => match subs::find_stpp_track(&data) {
             Ok(t) => t,
-            Err(e) => {
-                eprintln!("{e}");
-                return Ok(());
-            }
+            Err(_) => match subs::find_tx3g_track(&data) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return Ok(());
+                }
+            },
         },
     };
 
     for (i, sample) in track.samples.iter().enumerate() {
         println!("Sample {}", i + 1);
         match track.variant {
-            SubtitleVariant::Wvtt => subs::print_wvtt_sample(sample),
-            SubtitleVariant::Stpp => subs::print_stpp_sample(sample),
+            SubtitleVariant::Wvtt => subs::print_wvtt_sample(&sample.bytes),
+            SubtitleVariant::Stpp => subs::print_stpp_sample(&sample.bytes),
+            SubtitleVariant::Tx3g => subs::print_tx3g_sample(&sample.bytes),
         }
     }
     Ok(())
