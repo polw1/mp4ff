@@ -161,6 +161,7 @@ mod metadata;
 pub use metadata::{Metadata, read_mp4_metadata};
 
 pub mod subs;
+pub use subs::*;
 
 #[cfg(test)]
 mod metadata_tests {
