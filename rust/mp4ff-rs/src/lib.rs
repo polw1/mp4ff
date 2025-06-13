@@ -160,6 +160,8 @@ pub use bit_writer::BitWriter;
 mod metadata;
 pub use metadata::{Metadata, read_mp4_metadata};
 
+pub mod subs;
+
 #[cfg(test)]
 mod metadata_tests {
     use super::read_mp4_metadata;
