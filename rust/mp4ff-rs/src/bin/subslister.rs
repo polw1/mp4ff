@@ -19,10 +19,13 @@ fn main() -> io::Result<()> {
         Ok(t) => t,
         Err(_) => match subs::find_stpp_track(&data) {
             Ok(t) => t,
-            Err(e) => {
-                eprintln!("{e}");
-                return Ok(());
-            }
+            Err(_) => match subs::find_tx3g_track(&data) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return Ok(());
+                }
+            },
         },
     };
 
@@ -31,6 +34,7 @@ fn main() -> io::Result<()> {
         match track.variant {
             SubtitleVariant::Wvtt => subs::print_wvtt_sample(sample),
             SubtitleVariant::Stpp => subs::print_stpp_sample(sample),
+            SubtitleVariant::Tx3g => subs::print_tx3g_sample(sample),
         }
     }
     Ok(())

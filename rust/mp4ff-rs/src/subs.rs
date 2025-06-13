@@ -7,6 +7,8 @@ pub enum SubtitleVariant {
     Wvtt,
     /// TTML subtitles (stpp)
     Stpp,
+    /// 3GPP timed text (tx3g)
+    Tx3g,
 }
 
 /// A subtitle track and its extracted samples
@@ -84,6 +86,10 @@ pub fn find_stpp_track(data: &[u8]) -> Result<Track, &'static str> {
     find_track_inner(data, SubtitleVariant::Stpp).ok_or("no stpp track")
 }
 
+pub fn find_tx3g_track(data: &[u8]) -> Result<Track, &'static str> {
+    find_track_inner(data, SubtitleVariant::Tx3g).ok_or("no tx3g track")
+}
+
 fn find_track_inner(data: &[u8], variant: SubtitleVariant) -> Option<Track> {
     let moov = find_box(data, "moov")?;
     let mut pos = 0usize;
@@ -114,6 +120,11 @@ fn parse_trak(root: &[u8], data: &[u8], variant: SubtitleVariant) -> Option<Trac
         SubtitleVariant::Stpp => {
             if handler != b"subt" { return None; }
         }
+        SubtitleVariant::Tx3g => {
+            if handler != b"sbtl" && handler != b"text" && handler != b"subt" {
+                return None;
+            }
+        }
     }
     let minf = find_box(mdia, "minf")?;
     let stbl = find_box(minf, "stbl")?;
@@ -125,6 +136,9 @@ fn parse_trak(root: &[u8], data: &[u8], variant: SubtitleVariant) -> Option<Trac
         SubtitleVariant::Stpp => {
             if !stsd.windows(4).any(|w| w == b"stpp") { return None; }
         }
+        SubtitleVariant::Tx3g => {
+            if !stsd.windows(4).any(|w| w == b"tx3g") { return None; }
+        }
     }
     let stsz = find_box(stbl, "stsz")?;
     // chunk offsets may use either 32- or 64-bit entries
@@ -135,7 +149,7 @@ fn parse_trak(root: &[u8], data: &[u8], variant: SubtitleVariant) -> Option<Trac
     };
     let stsc = find_box(stbl, "stsc")?;
 
-    // Simple parsing with assumption 1 sample per chunk and single stsc entry
+    // Parse stsz table with sample sizes
     let mut p = 4; // skip version+flags
     let sample_uniform = read_u32(stsz, &mut p)?;
     let sample_count = read_u32(stsz, &mut p)? as usize;
@@ -148,43 +162,76 @@ fn parse_trak(root: &[u8], data: &[u8], variant: SubtitleVariant) -> Option<Trac
         for _ in 0..sample_count { sizes.push(sample_uniform); }
     }
 
-    let mut p = 4; // stco/co64 version+flags
+    // Parse chunk offsets (stco/co64)
+    let mut p = 4; // version+flags
     let entry_count = read_u32(stco, &mut p)? as usize;
-    let mut offsets = Vec::with_capacity(entry_count);
+    let mut chunk_offsets = Vec::with_capacity(entry_count);
     for _ in 0..entry_count {
         let off = if use_co64 {
             read_u64(stco, &mut p)?
         } else {
             read_u32(stco, &mut p)? as u64
         };
-        offsets.push(off);
+        chunk_offsets.push(off);
     }
 
-    let mut p = 4; // stsc version+flags
-    let entries = read_u32(stsc, &mut p)? as usize;
-    if entries != 1 { return None; }
-    let first_chunk = read_u32(stsc, &mut p)?;
-    let samples_per_chunk = read_u32(stsc, &mut p)?;
-    if first_chunk != 1 || samples_per_chunk != 1 { return None; }
-    let _desc = read_u32(stsc, &mut p)?;
-
-    if offsets.len() != sizes.len() { return None; }
+    // Parse stsc entries
+    let mut p = 4; // version+flags
+    let entry_count = read_u32(stsc, &mut p)? as usize;
+    let mut stsc_entries = Vec::with_capacity(entry_count);
+    for _ in 0..entry_count {
+        let first_chunk = read_u32(stsc, &mut p)?;
+        let samples_per_chunk = read_u32(stsc, &mut p)?;
+        let desc_index = read_u32(stsc, &mut p)?;
+        stsc_entries.push((first_chunk, samples_per_chunk, desc_index));
+    }
 
     let (_, mdat_payload_start, mdat_end) = find_box_range(root, "mdat")?;
     let mdat_slice = &root[mdat_payload_start..mdat_end];
     Some(Track{
         variant,
-        samples: collect_samples(mdat_slice, mdat_payload_start as u64, &offsets, &sizes),
+        samples: collect_samples_general(
+            mdat_slice,
+            mdat_payload_start as u64,
+            &chunk_offsets,
+            &stsc_entries,
+            &sizes,
+        ),
     })
 }
 
-fn collect_samples(mdat: &[u8], base_offset: u64, offsets: &[u64], sizes: &[u32]) -> Vec<Vec<u8>> {
+fn collect_samples_general(
+    mdat: &[u8],
+    base_offset: u64,
+    chunk_offsets: &[u64],
+    stsc_entries: &[(u32, u32, u32)],
+    sizes: &[u32],
+) -> Vec<Vec<u8>> {
     let mut samples = Vec::new();
-    for (&off, &size) in offsets.iter().zip(sizes.iter()) {
-        if off < base_offset { continue; }
-        let start = (off - base_offset) as usize;
-        let end = start + size as usize;
-        if end <= mdat.len() { samples.push(mdat[start..end].to_vec()); }
+    let mut sample_index = 0usize;
+    for (i, &(first_chunk, samples_per_chunk, _)) in stsc_entries.iter().enumerate() {
+        let next_first_chunk = stsc_entries
+            .get(i + 1)
+            .map(|e| e.0)
+            .unwrap_or(chunk_offsets.len() as u32 + 1);
+        for chunk in first_chunk..next_first_chunk {
+            let chunk_offset = chunk_offsets[(chunk - 1) as usize];
+            let mut offset_in_chunk = 0u64;
+            for _ in 0..samples_per_chunk {
+                if sample_index >= sizes.len() { break; }
+                let size = sizes[sample_index] as usize;
+                let absolute = chunk_offset + offset_in_chunk;
+                if absolute >= base_offset {
+                    let start = (absolute - base_offset) as usize;
+                    let end = start + size;
+                    if end <= mdat.len() {
+                        samples.push(mdat[start..end].to_vec());
+                    }
+                }
+                offset_in_chunk += size as u64;
+                sample_index += 1;
+            }
+        }
     }
     samples
 }
@@ -209,6 +256,21 @@ pub fn print_wvtt_sample(sample: &[u8]) {
 pub fn print_stpp_sample(sample: &[u8]) {
     if let Ok(text) = std::str::from_utf8(sample) {
         println!("  {}", text);
+    } else {
+        println!("  [binary {} bytes]", sample.len());
+    }
+}
+
+pub fn print_tx3g_sample(sample: &[u8]) {
+    if sample.len() < 2 {
+        println!("  [binary {} bytes]", sample.len());
+        return;
+    }
+    let len = u16::from_be_bytes([sample[0], sample[1]]) as usize;
+    let end = 2 + len.min(sample.len() - 2);
+    let text = &sample[2..end];
+    if let Ok(s) = std::str::from_utf8(text) {
+        println!("  {}", s);
     } else {
         println!("  [binary {} bytes]", sample.len());
     }
