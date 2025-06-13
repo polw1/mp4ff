@@ -1,5 +1,6 @@
 use std::str;
 
+<<<<<<< HEAD
 /// Supported subtitle track variants
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubtitleVariant {
@@ -12,6 +13,9 @@ pub enum SubtitleVariant {
 /// A subtitle track and its extracted samples
 pub struct Track {
     pub variant: SubtitleVariant,
+=======
+pub struct Track {
+>>>>>>> master
     pub samples: Vec<Vec<u8>>,
 }
 
@@ -59,6 +63,7 @@ fn find_box_range<'a>(data: &'a [u8], name: &str) -> Option<(usize, usize, usize
 }
 
 pub fn find_wvtt_track(data: &[u8]) -> Result<Track, &'static str> {
+<<<<<<< HEAD
     find_track_inner(data, SubtitleVariant::Wvtt).ok_or("no wvtt track")
 }
 
@@ -83,10 +88,29 @@ fn find_track_inner(data: &[u8], variant: SubtitleVariant) -> Option<Track> {
 }
 
 fn parse_trak(root: &[u8], data: &[u8], variant: SubtitleVariant) -> Option<Track> {
+=======
+    let moov = find_box(data, "moov").ok_or("no moov")?;
+    let mut pos = 0usize;
+    while pos + 8 <= moov.len() {
+        let start = pos;
+        let (name, size) = parse_box_header(moov, &mut pos).ok_or("bad box")?;
+        if size as usize > moov.len() - start { return Err("size too big"); }
+        let payload = &moov[pos .. start + size as usize];
+        if name == "trak" {
+            if let Some(track) = parse_trak(data, payload) { return Ok(track); }
+        }
+        pos = start + size as usize;
+    }
+    Err("no wvtt track")
+}
+
+fn parse_trak(root: &[u8], data: &[u8]) -> Option<Track> {
+>>>>>>> master
     let mdia = find_box(data, "mdia")?;
     let hdlr = find_box(mdia, "hdlr")?;
     if hdlr.len() < 16 { return None; }
     let handler = &hdlr[8..12];
+<<<<<<< HEAD
     match variant {
         SubtitleVariant::Wvtt => {
             if handler != b"text" { return None; }
@@ -106,6 +130,13 @@ fn parse_trak(root: &[u8], data: &[u8], variant: SubtitleVariant) -> Option<Trac
             if !stsd.windows(4).any(|w| w == b"stpp") { return None; }
         }
     }
+=======
+    if handler != b"text" { return None; }
+    let minf = find_box(mdia, "minf")?;
+    let stbl = find_box(minf, "stbl")?;
+    let stsd = find_box(stbl, "stsd")?;
+    if !stsd.windows(4).any(|w| w == b"wvtt") { return None; }
+>>>>>>> master
     let stsz = find_box(stbl, "stsz")?;
     let stco = find_box(stbl, "stco")?;
     let stsc = find_box(stbl, "stsc")?;
@@ -140,10 +171,14 @@ fn parse_trak(root: &[u8], data: &[u8], variant: SubtitleVariant) -> Option<Trac
 
     let (_, mdat_payload_start, mdat_end) = find_box_range(root, "mdat")?;
     let mdat_slice = &root[mdat_payload_start..mdat_end];
+<<<<<<< HEAD
     Some(Track{
         variant,
         samples: collect_samples(mdat_slice, mdat_payload_start as u64, &offsets, &sizes),
     })
+=======
+    Some(Track{ samples: collect_samples(mdat_slice, mdat_payload_start as u64, &offsets, &sizes) })
+>>>>>>> master
 }
 
 fn collect_samples(mdat: &[u8], base_offset: u64, offsets: &[u64], sizes: &[u32]) -> Vec<Vec<u8>> {
@@ -173,6 +208,7 @@ pub fn print_wvtt_sample(sample: &[u8]) {
         } else { break; }
     }
 }
+<<<<<<< HEAD
 
 pub fn print_stpp_sample(sample: &[u8]) {
     if let Ok(text) = std::str::from_utf8(sample) {
@@ -181,3 +217,5 @@ pub fn print_stpp_sample(sample: &[u8]) {
         println!("  [binary {} bytes]", sample.len());
     }
 }
+=======
+>>>>>>> master
