@@ -32,9 +32,9 @@ fn main() -> io::Result<()> {
     for (i, sample) in track.samples.iter().enumerate() {
         println!("Sample {}", i + 1);
         match track.variant {
-            SubtitleVariant::Wvtt => subs::print_wvtt_sample(sample),
-            SubtitleVariant::Stpp => subs::print_stpp_sample(sample),
-            SubtitleVariant::Tx3g => subs::print_tx3g_sample(sample),
+            SubtitleVariant::Wvtt => subs::print_wvtt_sample(&sample.bytes),
+            SubtitleVariant::Stpp => subs::print_stpp_sample(&sample.bytes),
+            SubtitleVariant::Tx3g => subs::print_tx3g_sample(&sample.bytes),
         }
     }
     Ok(())
