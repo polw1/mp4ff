@@ -1,5 +1,9 @@
 use std::str;
 
+use crate::bits::reader::{read_u32, read_u64};
+use crate::mp4::r#box::{parse_box_header, find_box, find_box_range};
+use crate::mp4::moov::{parse_mdhd_timescale, parse_stts_entries};
+
 /// Supported subtitle track variants
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubtitleVariant {
@@ -30,89 +34,7 @@ pub struct Track {
     pub samples: Vec<Sample>,
 }
 
-fn read_u32(data: &[u8], pos: &mut usize) -> Option<u32> {
-    if *pos + 4 > data.len() { return None; }
-    let v = u32::from_be_bytes([
-        data[*pos], data[*pos + 1], data[*pos + 2], data[*pos + 3],
-    ]);
-    *pos += 4;
-    Some(v)
-}
 
-fn read_u64(data: &[u8], pos: &mut usize) -> Option<u64> {
-    if *pos + 8 > data.len() { return None; }
-    let v = u64::from_be_bytes([
-        data[*pos],
-        data[*pos + 1],
-        data[*pos + 2],
-        data[*pos + 3],
-        data[*pos + 4],
-        data[*pos + 5],
-        data[*pos + 6],
-        data[*pos + 7],
-    ]);
-    *pos += 8;
-    Some(v)
-}
-
-fn parse_box_header(data: &[u8], pos: &mut usize) -> Option<(String, u64)> {
-    if *pos + 8 > data.len() { return None; }
-    let size = read_u32(data, pos)? as u64;
-    let name = &data[*pos..*pos+4];
-    *pos += 4;
-    let mut real_size = size;
-    if size == 1 {
-        if *pos + 8 > data.len() { return None; }
-        real_size = u64::from_be_bytes([
-            data[*pos], data[*pos+1], data[*pos+2], data[*pos+3],
-            data[*pos+4], data[*pos+5], data[*pos+6], data[*pos+7],
-        ]);
-        *pos += 8;
-    }
-    Some((str::from_utf8(name).ok()?.to_string(), real_size))
-}
-
-fn parse_mdhd_timescale(mdhd: &[u8]) -> Option<u32> {
-    if mdhd.len() < 12 { return None; }
-    let mut p = 0usize;
-    let ver = mdhd[p];
-    p += if ver == 1 { 4 + 8 + 8 } else { 4 + 4 + 4 };
-    if p + 4 > mdhd.len() { return None; }
-    let ts = u32::from_be_bytes([mdhd[p], mdhd[p+1], mdhd[p+2], mdhd[p+3]]);
-    Some(ts)
-}
-
-fn parse_stts_entries(stts: &[u8]) -> Option<Vec<(u32, u32)>> {
-    if stts.len() < 8 { return None; }
-    let mut p = 4; // version+flags
-    let entry_count = read_u32(stts, &mut p)? as usize;
-    let mut entries = Vec::with_capacity(entry_count);
-    for _ in 0..entry_count {
-        let count = read_u32(stts, &mut p)?;
-        let delta = read_u32(stts, &mut p)?;
-        entries.push((count, delta));
-    }
-    Some(entries)
-}
-
-fn find_box<'a>(data: &'a [u8], name: &str) -> Option<&'a [u8]> {
-    let (_, start, end) = find_box_range(data, name)?;
-    Some(&data[start..end])
-}
-
-fn find_box_range<'a>(data: &'a [u8], name: &str) -> Option<(usize, usize, usize)> {
-    let mut pos = 0usize;
-    while pos + 8 <= data.len() {
-        let start = pos;
-        let (box_name, size) = parse_box_header(data, &mut pos)?;
-        if size as usize > data.len() - start { return None; }
-        let payload_start = pos;
-        let payload_end = start + size as usize;
-        if box_name == name { return Some((start, payload_start, payload_end)); }
-        pos = payload_end;
-    }
-    None
-}
 
 pub fn find_wvtt_track(data: &[u8]) -> Result<Track, &'static str> {
     find_track_inner(data, SubtitleVariant::Wvtt).ok_or("no wvtt track")
