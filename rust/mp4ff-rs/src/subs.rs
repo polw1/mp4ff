@@ -1,5 +1,7 @@
 use std::str;
 
+use crate::bits::reader::{read_u32, read_u64};
+
 /// Supported subtitle track variants
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubtitleVariant {
@@ -30,30 +32,6 @@ pub struct Track {
     pub samples: Vec<Sample>,
 }
 
-fn read_u32(data: &[u8], pos: &mut usize) -> Option<u32> {
-    if *pos + 4 > data.len() { return None; }
-    let v = u32::from_be_bytes([
-        data[*pos], data[*pos + 1], data[*pos + 2], data[*pos + 3],
-    ]);
-    *pos += 4;
-    Some(v)
-}
-
-fn read_u64(data: &[u8], pos: &mut usize) -> Option<u64> {
-    if *pos + 8 > data.len() { return None; }
-    let v = u64::from_be_bytes([
-        data[*pos],
-        data[*pos + 1],
-        data[*pos + 2],
-        data[*pos + 3],
-        data[*pos + 4],
-        data[*pos + 5],
-        data[*pos + 6],
-        data[*pos + 7],
-    ]);
-    *pos += 8;
-    Some(v)
-}
 
 fn parse_box_header(data: &[u8], pos: &mut usize) -> Option<(String, u64)> {
     if *pos + 8 > data.len() { return None; }

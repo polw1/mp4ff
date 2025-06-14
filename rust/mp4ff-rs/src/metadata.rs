@@ -2,6 +2,8 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, BufReader, Cursor};
 use std::path::Path;
 
+use crate::bits::reader::{read_u8, read_u24, read_u32_be, read_u64_be};
+
 /// Basic metadata extracted from an MP4 file.
 #[derive(Debug, Default, PartialEq)]
 pub struct Metadata {
@@ -14,30 +16,6 @@ struct BoxHeader {
     name: String,
     size: u64,
     header_size: u64,
-}
-
-fn read_u8<R: Read>(r: &mut R) -> io::Result<u8> {
-    let mut buf = [0u8; 1];
-    r.read_exact(&mut buf)?;
-    Ok(buf[0])
-}
-
-fn read_u24<R: Read>(r: &mut R) -> io::Result<u32> {
-    let mut buf = [0u8; 3];
-    r.read_exact(&mut buf)?;
-    Ok(((buf[0] as u32) << 16) | ((buf[1] as u32) << 8) | buf[2] as u32)
-}
-
-fn read_u32_be<R: Read>(r: &mut R) -> io::Result<u32> {
-    let mut buf = [0u8; 4];
-    r.read_exact(&mut buf)?;
-    Ok(u32::from_be_bytes(buf))
-}
-
-fn read_u64_be<R: Read>(r: &mut R) -> io::Result<u64> {
-    let mut buf = [0u8; 8];
-    r.read_exact(&mut buf)?;
-    Ok(u64::from_be_bytes(buf))
 }
 
 fn read_box_header<R: Read>(r: &mut R) -> io::Result<BoxHeader> {
