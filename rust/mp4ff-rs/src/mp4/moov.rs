@@ -43,14 +43,25 @@ pub fn parse_moov(
     copyright: &mut Option<String>,
     duration: &mut Option<f64>,
 ) -> io::Result<()> {
+    parse_container(data, title, artist, album, copyright, duration)
+}
+
+fn parse_container(
+    data: &[u8],
+    title: &mut Option<String>,
+    artist: &mut Option<String>,
+    album: &mut Option<String>,
+    copyright: &mut Option<String>,
+    duration: &mut Option<f64>,
+) -> io::Result<()> {
     let mut cursor = Cursor::new(data);
     let len = data.len() as u64;
     let mut pos = 0u64;
     while pos < len {
         let header = read_box_header(&mut cursor)?;
         let payload = header.size.saturating_sub(header.header_size);
-        match header.name.as_str() {
-            "mvhd" => {
+        match &header.name_bytes {
+            b"mvhd" => {
                 let version = read_u8(&mut cursor)?;
                 let _flags = read_u24(&mut cursor)?;
                 if version == 1 {
@@ -66,10 +77,15 @@ pub fn parse_moov(
                 }
                 cursor.seek(SeekFrom::Current((payload - (cursor.position() - (pos + header.header_size))) as i64))?;
             }
-            "udta" => {
+            b"udta" => {
                 let mut buf = vec![0u8; payload as usize];
                 cursor.read_exact(&mut buf)?;
                 parse_udta(&buf, title, artist, album, copyright)?;
+            }
+            b"moov" | b"trak" | b"mdia" | b"minf" | b"stbl" => {
+                let mut buf = vec![0u8; payload as usize];
+                cursor.read_exact(&mut buf)?;
+                parse_container(&buf, title, artist, album, copyright, duration)?;
             }
             _ => {
                 cursor.seek(SeekFrom::Current(payload as i64))?;
@@ -93,8 +109,8 @@ fn parse_udta(
     while pos < len {
         let header = read_box_header(&mut cursor)?;
         let payload = header.size.saturating_sub(header.header_size);
-        match header.name.as_str() {
-            "meta" => {
+        match &header.name_bytes {
+            b"meta" => {
                 let start = cursor.position();
                 let mut look = [0u8; 4];
                 cursor.read_exact(&mut look)?;
@@ -129,8 +145,8 @@ fn parse_meta(
     while pos < len {
         let header = read_box_header(&mut cursor)?;
         let payload = header.size.saturating_sub(header.header_size);
-        match header.name.as_str() {
-            "ilst" => {
+        match &header.name_bytes {
+            b"ilst" => {
                 let mut buf = vec![0u8; payload as usize];
                 cursor.read_exact(&mut buf)?;
                 parse_ilst(&buf, title, artist, album, copyright)?;
@@ -157,7 +173,7 @@ fn parse_ilst(
     while pos < len {
         let header = read_box_header(&mut cursor)?;
         let payload = header.size.saturating_sub(header.header_size);
-        let dest = match header.name.as_bytes() {
+        let dest = match &header.name_bytes {
             b"\xa9nam" => &mut *title,
             b"\xa9ART" => &mut *artist,
             b"\xa9alb" => &mut *album,
@@ -183,7 +199,7 @@ fn parse_name_box(data: &[u8], dest: &mut Option<String>) -> io::Result<()> {
     while pos < len {
         let header = read_box_header(&mut cursor)?;
         let payload = header.size.saturating_sub(header.header_size);
-        if header.name.as_str() == "data" {
+        if &header.name_bytes == b"data" {
             cursor.seek(SeekFrom::Current(8))?; // type and locale
             let mut buf = vec![0u8; (payload - 8) as usize];
             cursor.read_exact(&mut buf)?;

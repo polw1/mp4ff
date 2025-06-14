@@ -6,6 +6,7 @@ use crate::bits::reader::{read_u32, read_u32_be, read_u64, read_u64_be};
 #[derive(Debug)]
 pub struct BoxHeader {
     pub name: String,
+    pub name_bytes: [u8; 4],
     pub size: u64,
     pub header_size: u64,
 }
@@ -23,6 +24,7 @@ pub fn read_box_header<R: Read>(r: &mut R) -> io::Result<BoxHeader> {
     }
     Ok(BoxHeader {
         name: String::from_utf8_lossy(&name_buf).into_owned(),
+        name_bytes: name_buf,
         size,
         header_size,
     })
