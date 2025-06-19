@@ -6,4 +6,5 @@ license = "MIT"
 
 [lib]
 name = "mp4ff"
+
 [dependencies]
