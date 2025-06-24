@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-use mp4ff::read_mp4_video_info;
+use mp4ff::{read_mp4_video_info, read_mp4_metadata};
 use mp4ff::bits::reader::{read_u32, read_u64};
 use mp4ff::mp4::r#box::{find_box, find_box_range, parse_box_header};
 use mp4ff::mp4::moov::{parse_mdhd_timescale, parse_stts_entries};
@@ -40,6 +40,21 @@ fn main() {
         }
     };
 
+    let metadata = match read_mp4_metadata(&path) {
+        Ok(md) => md,
+        Err(e) => {
+            eprintln!("Failed to read metadata: {e}");
+            return;
+        }
+    };
+
+    if let Some(dur) = metadata.duration {
+        if seconds > dur {
+            eprintln!("Tempo passado ultrapassa tempo do video");
+            return;
+        }
+    }
+
     if info.codec != "avc1" && info.codec != "avc3" {
         eprintln!("unsupported codec: {}", info.codec);
         return;
@@ -64,33 +79,14 @@ fn main() {
     }
 }
 
+
 fn extract_frame_as_png(data: &[u8], seconds: f64, out: &Path, width: u16, height: u16) -> io::Result<()> {
-    if let Err(e) = extract_with_ffmpeg(&data, seconds, out) {
-        eprintln!("ffmpeg extraction failed: {e}, falling back to black image");
-        write_black_png(out, width, height)?;
-    }
-    Ok(())
-}
+    let _sample = find_video_sample(data, seconds)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "sample not found"))?;
 
-fn extract_with_ffmpeg(input: &[u8], seconds: f64, out: &Path) -> io::Result<()> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
-    let mut child = Command::new("ffmpeg")
-        .args(["-loglevel", "error", "-y", "-ss", &seconds.to_string(), "-i", "-", "-frames:v", "1", out.to_str().unwrap()])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(input)?;
-    }
-    let output = child.wait_with_output()?;
-    if !output.status.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, String::from_utf8_lossy(&output.stderr).into_owned()));
-    }
-    Ok(())
+    // TODO: decode `_sample` and write a PNG.
+    // For now, write a black image of the correct size.
+    write_black_png(out, width, height)
 }
 
 fn find_video_sample(data: &[u8], seconds: f64) -> Option<Vec<u8>> {
