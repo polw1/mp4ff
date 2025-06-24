@@ -262,11 +262,20 @@ fn write_black_png(path: &Path, width: u16, height: u16) -> io::Result<()> {
 
     let mut comp = Vec::new();
     comp.extend_from_slice(&[0x78, 0x01]); // zlib header, no compression
-    comp.push(0x01); // final block, uncompressed
-    let len = raw.len() as u16;
-    comp.extend_from_slice(&len.to_le_bytes());
-    comp.extend_from_slice(&(!len).to_le_bytes());
-    comp.extend_from_slice(&raw);
+
+    let mut remaining = raw.len();
+    let mut idx = 0usize;
+    while remaining > 0 {
+        let block_len = remaining.min(0xffff);
+        let is_last = remaining <= 0xffff;
+        comp.push(if is_last { 0x01 } else { 0x00 });
+        comp.extend_from_slice(&(block_len as u16).to_le_bytes());
+        comp.extend_from_slice(&(!(block_len as u16)).to_le_bytes());
+        comp.extend_from_slice(&raw[idx..idx + block_len]);
+        idx += block_len;
+        remaining -= block_len;
+    }
+
     let mut s1 = 1u32;
     let mut s2 = 0u32;
     for &b in raw.iter() {
