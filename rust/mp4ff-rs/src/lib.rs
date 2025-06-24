@@ -13,6 +13,8 @@ pub use videoinfo::{VideoInfo, read_mp4_video_info};
 
 pub mod mp4;
 
+pub mod avc;
+
 pub mod subs;
 pub use subs::*;
 
