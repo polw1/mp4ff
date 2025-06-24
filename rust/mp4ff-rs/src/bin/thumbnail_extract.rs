@@ -10,13 +10,20 @@ use mp4ff::mp4::moov::{parse_mdhd_timescale, parse_stts_entries};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <mp4 file> [output.png]", args[0]);
+    if args.len() < 3 {
+        eprintln!("Usage: {} <mp4 file> <seconds> [output.png]", args[0]);
         return;
     }
     let path = PathBuf::from(&args[1]);
-    let out_path = if args.len() > 2 {
-        PathBuf::from(&args[2])
+    let seconds: f64 = match args[2].parse() {
+        Ok(s) => s,
+        Err(_) => {
+            eprintln!("invalid seconds value: {}", args[2]);
+            return;
+        }
+    };
+    let out_path = if args.len() > 3 {
+        PathBuf::from(&args[3])
     } else {
         path.with_extension("png")
     };
@@ -51,22 +58,38 @@ fn main() {
         return;
     }
 
-    match extract_frame_as_png(&data, 5.0, &out_path, info.width, info.height) {
+    match extract_frame_as_png(&data, seconds, &out_path, info.width, info.height) {
         Ok(()) => println!("Saved thumbnail to {}", out_path.display()),
         Err(e) => eprintln!("Failed to extract thumbnail: {e}"),
     }
 }
 
 fn extract_frame_as_png(data: &[u8], seconds: f64, out: &Path, width: u16, height: u16) -> io::Result<()> {
-    let sample = match find_video_sample(data, seconds) {
-        Some(s) => s,
-        None => return Err(io::Error::new(io::ErrorKind::Other, "sample not found")),
-    };
-    // TODO: Decode H264 sample to raw pixels using AVC parser
-    // Placeholder: create a black PNG with the correct dimensions
-    write_black_png(out, width, height)?;
-    // Avoid unused variable warning
-    let _ = sample;
+    if let Err(e) = extract_with_ffmpeg(&data, seconds, out) {
+        eprintln!("ffmpeg extraction failed: {e}, falling back to black image");
+        write_black_png(out, width, height)?;
+    }
+    Ok(())
+}
+
+fn extract_with_ffmpeg(input: &[u8], seconds: f64, out: &Path) -> io::Result<()> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("ffmpeg")
+        .args(["-loglevel", "error", "-y", "-ss", &seconds.to_string(), "-i", "-", "-frames:v", "1", out.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(input)?;
+    }
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Err(io::Error::new(io::ErrorKind::Other, String::from_utf8_lossy(&output.stderr).into_owned()));
+    }
     Ok(())
 }
 
