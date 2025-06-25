@@ -10,6 +10,14 @@ pub struct Sps {
     pub profile: u8,
     pub profile_compatibility: u8,
     pub level: u8,
+    pub parameter_set_id: u32,
+    pub chroma_format_idc: u32,
+    pub separate_colour_plane_flag: bool,
+    pub log2_max_frame_num_minus4: u32,
+    pub pic_order_cnt_type: u32,
+    pub log2_max_pic_order_cnt_lsb_minus4: u32,
+    pub delta_pic_order_always_zero_flag: bool,
+    pub frame_mbs_only_flag: bool,
     pub width: u16,
     pub height: u16,
 }
@@ -24,12 +32,13 @@ pub fn parse_sps_nalu(nalu: &[u8]) -> Option<Sps> {
     let profile_idc = r.read(8) as u8;
     let compat = r.read(8) as u8;
     let level_idc = r.read(8) as u8;
-    let _id = read_ue(&mut r);
+    let parameter_set_id = read_ue(&mut r);
     let mut chroma_format_idc = 1u32;
+    let mut separate_colour_plane_flag = false;
     match profile_idc {
         100 | 110 | 122 | 244 | 44 | 83 | 86 | 118 | 128 | 138 | 139 | 134 | 135 => {
             chroma_format_idc = read_ue(&mut r);
-            if chroma_format_idc == 3 { r.read(1); }
+            if chroma_format_idc == 3 { separate_colour_plane_flag = r.read(1) == 1; }
             let _ = read_ue(&mut r); // bit_depth_luma_minus8
             let _ = read_ue(&mut r); // bit_depth_chroma_minus8
             r.read(1); // qpprime_y_zero_transform_bypass_flag
@@ -40,12 +49,14 @@ pub fn parse_sps_nalu(nalu: &[u8]) -> Option<Sps> {
         }
         _ => {}
     }
-    let _ = read_ue(&mut r); // log2_max_frame_num_minus4
+    let log2_max_frame_num_minus4 = read_ue(&mut r);
     let pic_order_cnt_type = read_ue(&mut r);
+    let mut log2_max_pic_order_cnt_lsb_minus4 = 0u32;
+    let mut delta_pic_order_always_zero_flag = false;
     if pic_order_cnt_type == 0 {
-        let _ = read_ue(&mut r); // log2_max_pic_order_cnt_lsb_minus4
+        log2_max_pic_order_cnt_lsb_minus4 = read_ue(&mut r);
     } else if pic_order_cnt_type == 1 {
-        r.read(1); // delta_pic_order_always_zero_flag
+        delta_pic_order_always_zero_flag = r.read(1) == 1;
         let _ = read_se(&mut r); // offset_for_non_ref_pic
         let _ = read_se(&mut r); // offset_for_top_to_bottom_field
         let num = read_ue(&mut r);
@@ -55,10 +66,10 @@ pub fn parse_sps_nalu(nalu: &[u8]) -> Option<Sps> {
     r.read(1); // gaps_in_frame_num_value_allowed_flag
     let width_in_mbs = read_ue(&mut r) + 1;
     let height_in_map = read_ue(&mut r) + 1;
-    let frame_mbs_only_flag = r.read(1);
+    let frame_mbs_only_flag = r.read(1) == 1;
     let mut width = width_in_mbs * 16;
     let mut height = height_in_map * 16;
-    if frame_mbs_only_flag == 0 { r.read(1); height *= 2; }
+    if !frame_mbs_only_flag { r.read(1); height *= 2; }
     r.read(1); // direct_8x8_inference_flag
     let cropping_flag = r.read(1);
     let mut crop_left = 0u32;
@@ -83,9 +94,28 @@ pub fn parse_sps_nalu(nalu: &[u8]) -> Option<Sps> {
         profile: profile_idc,
         profile_compatibility: compat,
         level: level_idc,
+        parameter_set_id,
+        chroma_format_idc,
+        separate_colour_plane_flag,
+        log2_max_frame_num_minus4,
+        pic_order_cnt_type,
+        log2_max_pic_order_cnt_lsb_minus4,
+        delta_pic_order_always_zero_flag,
+        frame_mbs_only_flag,
         width: width as u16,
         height: height as u16,
     })
+}
+
+impl Sps {
+    /// Equivalent of the Go `ChromaArrayType` helper.
+    pub fn chroma_array_type(&self) -> u32 {
+        if !self.separate_colour_plane_flag {
+            self.chroma_format_idc
+        } else {
+            0
+        }
+    }
 }
 
 fn read_ue<R: std::io::Read>(r: &mut BitReader<R>) -> u32 {
