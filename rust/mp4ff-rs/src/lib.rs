@@ -18,6 +18,9 @@ pub mod avc;
 pub mod subs;
 pub use subs::*;
 
+mod video_track;
+pub use video_track::{extract_avc_track, Sample as VideoSample, Error as VideoError};
+
 #[cfg(test)]
 mod metadata_tests {
     use super::read_mp4_metadata;
