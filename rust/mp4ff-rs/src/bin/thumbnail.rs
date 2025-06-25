@@ -1,78 +1,108 @@
-use std::env;
-use std::fs;
-use std::path::PathBuf;
+//! Minimal example decoding a H.264 file using `openh264-sys2` only.
+//!
+//! The example reads an Annex‑B formatted H.264 bitstream and saves the first
+//! decoded frame as a PNG image.  It implements the few helpers required
+//! directly so the file is self contained.
+
+
+use mp4ff::{DecodedYUV, Decoder, H264Error};
 
 use image::RgbImage;
-use mp4ff::avc::{self, decode_avc_decoder_config, get_parameter_sets, NaluType, parse_sps_nalu};
-use mp4ff::{extract_avc_track};
-use mp4ff::mp4::r#box::{find_box, parse_box_header};
-use mp4ff::mp4::moov::parse_mdhd_timescale;
+use std::fs::File;
+use std::io::Read;
 
-fn find_video_timescale(data: &[u8]) -> Option<u32> {
-    let moov = find_box(data, "moov")?;
-    let mut pos = 0usize;
-    while pos + 8 <= moov.len() {
-        let start = pos;
-        let (name, size) = parse_box_header(moov, &mut pos)?;
-        if size as usize > moov.len() - start { return None; }
-        let payload = &moov[pos..start + size as usize];
-        if name == "trak" {
-            let mdia = find_box(payload, "mdia")?;
-            let hdlr = find_box(mdia, "hdlr")?;
-            if hdlr.len() < 12 { return None; }
-            if &hdlr[8..12] != b"vide" { pos = start + size as usize; continue; }
-            let mdhd = find_box(mdia, "mdhd")?;
-            return parse_mdhd_timescale(mdhd);
+
+// How many zeros we must see before a `1` indicates a NAL start.
+const NAL_MIN_0_COUNT: usize = 2;
+
+/// Return the index of the `nth` NAL prefix in `stream`.
+fn nth_nal_index(stream: &[u8], nth: usize) -> Option<usize> {
+    let mut count_0 = 0;
+    let mut n = 0;
+    for (i, byte) in stream.iter().enumerate() {
+        match byte {
+            0 => count_0 += 1,
+            1 if count_0 >= NAL_MIN_0_COUNT => {
+                if n == nth {
+                    return Some(i - NAL_MIN_0_COUNT);
+                }
+                count_0 = 0;
+                n += 1;
+            }
+            _ => count_0 = 0,
         }
-        pos = start + size as usize;
     }
     None
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <mp4 file>", args[0]);
-        std::process::exit(1);
-    }
-    let path = PathBuf::from(&args[1]);
-    let data = fs::read(&path)?;
+/// Split a H.264 Annex‑B stream into NAL units.
+fn nal_units(mut stream: &[u8]) -> impl Iterator<Item = &[u8]> {
+    std::iter::from_fn(move || {
+        let first = nth_nal_index(stream, 0);
+        let next = nth_nal_index(stream, 1);
+        match (first, next) {
+            (Some(f), Some(n)) => {
+                let val = &stream[f..n];
+                stream = &stream[n..];
+                Some(val)
+            }
+            (Some(f), None) => {
+                let val = &stream[f..];
+                stream = &stream[f + NAL_MIN_0_COUNT..];
+                Some(val)
+            }
+            _ => None,
+        }
+    })
+}
 
-    let samples = extract_avc_track(&data).map_err(|_| "no avc track")?;
-    let timescale = find_video_timescale(&data).ok_or("no timescale")?;
 
-    // gather SPS/PPS
-    let mut sps_list = Vec::new();
-    let mut pps_list = Vec::new();
-    if let Some(first) = samples.get(0) {
-        let (s, p) = get_parameter_sets(&first.bytes);
-        sps_list = s;
-        pps_list = p;
-    }
-    if sps_list.is_empty() || pps_list.is_empty() {
-        if let Some(conf) = decode_avc_decoder_config(&data) {
-            if sps_list.is_empty() { sps_list = conf.sps; }
-            if pps_list.is_empty() { pps_list = conf.pps; }
+fn main() -> Result<(), H264Error> {
+    let mut args = std::env::args();
+    let bin = args.next().unwrap_or_else(|| "sample_decode".into());
+    let input = match args.next() {
+        Some(p) => p,
+        None => {
+            eprintln!("usage: {bin} <h264-file> [output.png]");
+            std::process::exit(1);
+        }
+    };
+    let output = args.next().unwrap_or_else(|| "frame.png".into());
+
+    let mut data = Vec::new();
+    File::open(&input)?.read_to_end(&mut data)?;
+
+    let mut decoder = Decoder::new()?;
+
+    let mut rgb = Vec::new();
+    let mut width = 0usize;
+    let mut height = 0usize;
+
+    for packet in nal_units(&data) {
+        match decoder.decode(packet)? {
+            Some(image) => {
+                let dim = image.dimensions();
+                width = dim.0;
+                height = dim.1;
+                rgb.resize(width * height * 3, 0);
+                image.write_rgb8(&mut rgb);
+                break;
+            }
+            None => continue,
         }
     }
-    let sps = sps_list.get(0).ok_or("no sps")?;
-    let sps_parsed = parse_sps_nalu(sps).ok_or("bad sps")?;
 
-    let target = (timescale as u64) * 5;
-    let mut chosen = &samples[0];
-    for s in &samples {
-        if s.start >= target { chosen = s; break; }
+    if width == 0 || height == 0 {
+        eprintln!("No frame decoded");
+        return Ok(());
     }
 
-    // Ensure the chosen sample has an IDR NALU
-    if !chosen.nalus.iter().any(|n| NaluType::from_header_byte(n[0]) == NaluType::IDR) {
-        eprintln!("No IDR at target position, using first sample");
-    }
+    let img = RgbImage::from_vec(width as u32, height as u32, rgb)
+        .ok_or_else(|| H264Error::msg("Failed to create image"))?;
+    img.save(&output)?;
+    println!("Wrote first frame to {output}");
 
-    let img: RgbImage = avc::decode_idr_to_rgb(&chosen.nalus, &sps_parsed);
-    let file_stem = path.file_stem().unwrap().to_string_lossy();
-    let out_path = path.with_file_name(format!("thumbnail_{}.png", file_stem));
-    img.save(&out_path)?;
-    println!("Thumbnail saved to {}", out_path.display());
     Ok(())
 }
+
+
