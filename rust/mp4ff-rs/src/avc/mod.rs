@@ -8,6 +8,7 @@ pub mod sei;
 pub mod decconf;
 pub mod mime;
 pub mod doc;
+pub mod simple;
 
 pub use avc::*;
 pub use nalus::*;
@@ -16,3 +17,4 @@ pub use pps::*;
 pub use sps::{Sps, VuiParameters, HrdParameters, CpbEntry, parse_sps_nalu, parse_sps_nalu_with_vui};
 pub use decconf::{DecConfRec, decode_avc_decoder_config};
 pub use mime::codec_string;
+pub use simple::decode_idr_to_rgb;

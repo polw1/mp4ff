@@ -50,6 +50,7 @@ The examples and their functions are:
 5. [combine-segs](examples/combine-segs) combines single-track init and media segments into multi-track segments
 6. [add-sidx](examples/add-sidx) adds a top-level sidx box describing the segments of a fragmented files.
 7. `track_server` in `rust/mp4ff-rs` serves the H.264 track from an MP4 over HTTP.
+8. `thumbnail` in `rust/mp4ff-rs` parses the video track and writes a PNG thumbnail at five seconds using a very small built‑in decoder.
 
 ### Running the Rust track server
 Build the binary:
