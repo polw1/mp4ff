@@ -110,3 +110,13 @@ pub fn get_parameter_sets(sample: &[u8]) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     }
     (sps, pps)
 }
+
+/// Return true if the sample contains an IDR NAL unit.
+pub fn is_idr_sample(sample: &[u8]) -> bool {
+    contains_nalu_type(sample, NaluType::IDR)
+}
+
+/// Check if a NAL unit type is a video slice.
+pub fn is_video_nalu_type(ntype: NaluType) -> bool {
+    matches!(ntype, NaluType::NonIDR | NaluType::IDR)
+}

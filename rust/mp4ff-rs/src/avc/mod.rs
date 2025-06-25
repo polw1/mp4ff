@@ -6,7 +6,6 @@ pub mod sps;
 pub mod slice;
 pub mod sei;
 pub mod decconf;
-pub mod decoder;
 pub mod doc;
 
 pub use avc::*;

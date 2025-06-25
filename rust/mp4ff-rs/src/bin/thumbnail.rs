@@ -1,6 +1,6 @@
 use std::env;
 use std::path::PathBuf;
-use mp4ff::avc::decoder::save_thumbnail;
+// use mp4ff::avc::decoder::save_thumbnail; // not yet ported in Rust
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -9,9 +9,7 @@ fn main() {
         return;
     }
     let path = PathBuf::from(&args[1]);
-    let out_path = path.with_file_name("thumbnail.png");
-    match save_thumbnail(&path, &out_path) {
-        Ok(()) => println!("Saved {}", out_path.display()),
-        Err(e) => eprintln!("Failed to create thumbnail: {e}"),
-    }
+    // Thumbnail creation is not yet implemented in the Rust port.
+    let _out_path = path.with_file_name("thumbnail.png");
+    eprintln!("Thumbnail creation not implemented");
 }
