@@ -49,6 +49,19 @@ The examples and their functions are:
 4. [multitrack](examples/multitrack) parses a fragmented file with multiple tracks
 5. [combine-segs](examples/combine-segs) combines single-track init and media segments into multi-track segments
 6. [add-sidx](examples/add-sidx) adds a top-level sidx box describing the segments of a fragmented files.
+7. `track_server` in `rust/mp4ff-rs` serves the H.264 track from an MP4 over HTTP.
+
+### Running the Rust track server
+Build the binary:
+```bash
+cd rust/mp4ff-rs
+cargo build --bin track_server
+```
+Run the server with your MP4 file:
+```bash
+cargo run --bin track_server path/to/video.mp4
+```
+Open `http://localhost:8080/track.html` in a browser or open `http://localhost:8080/video.h264` directly in VLC.
 
 ## Packages
 
