@@ -66,3 +66,75 @@ pub fn get_first_video_nalu_from_bytestream(stream: &[u8]) -> Option<&[u8]> {
     }
     None
 }
+
+/// Extract all NAL units from a bytestream without their start codes.
+pub fn extract_nalus_from_bytestream(data: &[u8]) -> Vec<Vec<u8>> {
+    let mut nalus = Vec::new();
+    let mut pos = 0usize;
+    let mut curr_start: Option<usize> = None;
+    while pos + 3 <= data.len() {
+        if pos + 4 <= data.len() && &data[pos..pos + 4] == [0, 0, 0, 1] {
+            if let Some(s) = curr_start {
+                let mut end = pos;
+                while end > s && data[end - 1] == 0 {
+                    end -= 1;
+                }
+                nalus.push(data[s..end].to_vec());
+            }
+            curr_start = Some(pos + 4);
+            pos += 4;
+            continue;
+        } else if &data[pos..pos + 3] == [0, 0, 1] {
+            if let Some(s) = curr_start {
+                let mut end = pos;
+                while end > s && data[end - 1] == 0 {
+                    end -= 1;
+                }
+                nalus.push(data[s..end].to_vec());
+            }
+            curr_start = Some(pos + 3);
+            pos += 3;
+            continue;
+        }
+        pos += 1;
+    }
+    if let Some(s) = curr_start {
+        let mut end = data.len();
+        while end > s && data[end - 1] == 0 {
+            end -= 1;
+        }
+        nalus.push(data[s..end].to_vec());
+    }
+    nalus
+}
+
+/// Return SPS and PPS NAL units found in a bytestream.
+pub fn get_parameter_sets_from_bytestream(data: &[u8]) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    let mut sps = Vec::new();
+    let mut pps = Vec::new();
+    for nalu in extract_nalus_from_bytestream(data) {
+        match NaluType::from_header_byte(nalu[0]) {
+            NaluType::SPS => sps.push(nalu),
+            NaluType::PPS => pps.push(nalu),
+            t if t.is_video() => break,
+            _ => {}
+        }
+    }
+    (sps, pps)
+}
+
+/// Extract all NAL units of a specific type from a bytestream.
+/// If `stop_at_video` is true, scanning stops at the first video NAL unit.
+pub fn extract_nalus_of_type_from_bytestream(n_type: NaluType, data: &[u8], stop_at_video: bool) -> Vec<Vec<u8>> {
+    let mut res = Vec::new();
+    for nalu in extract_nalus_from_bytestream(data) {
+        let nt = NaluType::from_header_byte(nalu[0]);
+        if nt == n_type {
+            res.push(nalu.clone());
+        }
+        if stop_at_video && nt.is_video() {
+            break;
+        }
+    }
+    res
+}

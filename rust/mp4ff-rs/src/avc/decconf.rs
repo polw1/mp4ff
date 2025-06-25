@@ -50,3 +50,34 @@ pub fn decode_avc_decoder_config(data: &[u8]) -> Option<DecConfRec> {
         pps: pps_vec,
     })
 }
+
+impl DecConfRec {
+    /// Return the size in bytes when encoded.
+    pub fn size(&self) -> usize {
+        let mut total = 7usize;
+        for n in &self.sps { total += 2 + n.len(); }
+        for n in &self.pps { total += 2 + n.len(); }
+        total
+    }
+
+    /// Encode the configuration record and return the byte vector.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.size());
+        out.push(1); // configurationVersion
+        out.push(self.profile_indication);
+        out.push(self.profile_compatibility);
+        out.push(self.level_indication);
+        out.push(0xff); // length size minus 1 == 3
+        out.push(0xe0 | (self.sps.len() as u8));
+        for n in &self.sps {
+            out.extend_from_slice(&(n.len() as u16).to_be_bytes());
+            out.extend_from_slice(n);
+        }
+        out.push(self.pps.len() as u8);
+        for n in &self.pps {
+            out.extend_from_slice(&(n.len() as u16).to_be_bytes());
+            out.extend_from_slice(n);
+        }
+        out
+    }
+}

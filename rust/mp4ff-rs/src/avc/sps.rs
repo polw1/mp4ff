@@ -8,6 +8,7 @@ use super::NaluType;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sps {
     pub profile: u8,
+    pub profile_compatibility: u8,
     pub level: u8,
     pub width: u16,
     pub height: u16,
@@ -21,7 +22,7 @@ pub fn parse_sps_nalu(nalu: &[u8]) -> Option<Sps> {
     let bytes = remove_emulation_prevention_bytes(&nalu[1..]);
     let mut r = BitReader::new(Cursor::new(bytes));
     let profile_idc = r.read(8) as u8;
-    let _compat = r.read(8);
+    let compat = r.read(8) as u8;
     let level_idc = r.read(8) as u8;
     let _id = read_ue(&mut r);
     let mut chroma_format_idc = 1u32;
@@ -78,7 +79,13 @@ pub fn parse_sps_nalu(nalu: &[u8]) -> Option<Sps> {
     };
     width -= (crop_left + crop_right) * crop_unit_x;
     height -= (crop_top + crop_bottom) * crop_unit_y;
-    Some(Sps { profile: profile_idc, level: level_idc, width: width as u16, height: height as u16 })
+    Some(Sps {
+        profile: profile_idc,
+        profile_compatibility: compat,
+        level: level_idc,
+        width: width as u16,
+        height: height as u16,
+    })
 }
 
 fn read_ue<R: std::io::Read>(r: &mut BitReader<R>) -> u32 {

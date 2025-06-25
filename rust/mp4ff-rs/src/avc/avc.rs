@@ -13,6 +13,24 @@ pub enum NaluType {
     Other(u8),
 }
 
+impl std::fmt::Display for NaluType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            NaluType::NonIDR => "NonIDR_1",
+            NaluType::IDR => "IDR_5",
+            NaluType::SEI => "SEI_6",
+            NaluType::SPS => "SPS_7",
+            NaluType::PPS => "PPS_8",
+            NaluType::AUD => "AUD_9",
+            NaluType::EOSeq => "EndOfSequence_10",
+            NaluType::EOStream => "EndOfStream_11",
+            NaluType::Fill => "FILL_12",
+            NaluType::Other(v) => return write!(f, "Other_{v}"),
+        };
+        f.write_str(s)
+    }
+}
+
 impl NaluType {
     pub fn from_header_byte(b: u8) -> Self {
         match b & 0x1f {
@@ -109,4 +127,14 @@ pub fn get_parameter_sets(sample: &[u8]) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
         pos += len;
     }
     (sps, pps)
+}
+
+/// Return true if the sample contains an IDR NAL unit.
+pub fn is_idr_sample(sample: &[u8]) -> bool {
+    contains_nalu_type(sample, NaluType::IDR)
+}
+
+/// Check if a NAL unit type is a video slice.
+pub fn is_video_nalu_type(ntype: NaluType) -> bool {
+    matches!(ntype, NaluType::NonIDR | NaluType::IDR)
 }
