@@ -5,7 +5,7 @@
 //! directly so the file is self contained.
 
 
-use mp4ff::{DecodedYUV, Decoder, H264Error};
+use mp4ff::{Decoder, H264Error};
 
 use image::RgbImage;
 use std::fs::File;
