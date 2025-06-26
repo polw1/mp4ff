@@ -1,15 +1,15 @@
+#![cfg(not(test))]
 //! Minimal example decoding a H.264 file using `openh264-sys2` only.
 //!
 //! The example reads an Annex‑B formatted H.264 bitstream and saves the first
-//! decoded frame as a PNG image.  It implements the few helpers required
+//! decoded frame as a PPM image.  It implements the few helpers required
 //! directly so the file is self contained.
 
 
-use mp4ff::{DecodedYUV, Decoder, H264Error};
+use mp4ff::{Decoder, H264Error};
 
-use image::RgbImage;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 
 
 // How many zeros we must see before a `1` indicates a NAL start.
@@ -63,11 +63,11 @@ fn main() -> Result<(), H264Error> {
     let input = match args.next() {
         Some(p) => p,
         None => {
-            eprintln!("usage: {bin} <h264-file> [output.png]");
+            eprintln!("usage: {bin} <h264-file> [output.ppm]");
             std::process::exit(1);
         }
     };
-    let output = args.next().unwrap_or_else(|| "frame.png".into());
+    let output = args.next().unwrap_or_else(|| "frame.ppm".into());
 
     let mut data = Vec::new();
     File::open(&input)?.read_to_end(&mut data)?;
@@ -97,9 +97,9 @@ fn main() -> Result<(), H264Error> {
         return Ok(());
     }
 
-    let img = RgbImage::from_vec(width as u32, height as u32, rgb)
-        .ok_or_else(|| H264Error::msg("Failed to create image"))?;
-    img.save(&output)?;
+    let mut file = File::create(&output)?;
+    write!(file, "P6\n{} {}\n255\n", width, height)?;
+    file.write_all(&rgb)?;
     println!("Wrote first frame to {output}");
 
     Ok(())
