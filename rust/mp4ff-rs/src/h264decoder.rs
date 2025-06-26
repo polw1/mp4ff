@@ -190,6 +190,10 @@ impl DynamicAPI {
 
 
 /// Simple error wrapper used by the examples.
+///
+/// It accepts any error that implements [`std::error::Error`]
+/// and is both `Send` and `Sync`, enabling use of the `?` operator
+/// without additional boilerplate.
 #[derive(Debug)]
 pub struct H264Error(Box<dyn std::error::Error + Send + Sync>);
 
