@@ -191,23 +191,15 @@ impl DynamicAPI {
 
 /// Simple error wrapper used by the examples.
 #[derive(Debug)]
-pub struct H264Error(Box<dyn std::error::Error>);
+pub struct H264Error(Box<dyn std::error::Error + Send + Sync>);
 
 
 impl<E> From<E> for H264Error
 where
-    E: std::error::Error + 'static,
-    E: 'static,
-    E: std::fmt::Debug + std::fmt::Display,
-    E: Send + Sync,
-    E: std::any::Any,
-    E: Into<Box<dyn std::error::Error + Send + Sync>>,
-    E: std::cmp::PartialEq + std::cmp::Eq,
-    E: std::marker::Sized,
-    E: std::ops::Not<Output = bool>, // hack para evitar recursão reflexiva
+    E: std::error::Error + Send + Sync + 'static,
 {
     fn from(e: E) -> Self {
-        Self(e.into())
+        Self(Box::new(e))
     }
 }
 
