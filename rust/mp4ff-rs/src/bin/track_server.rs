@@ -3,7 +3,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -16,8 +16,7 @@ use mp4ff::mp4::moov::parse_mdhd_timescale;
 struct SampleInfo {
     start: u64,
     dur: u32,
-    offset: usize,
-    len: usize,
+    data: Vec<u8>,
 }
 
 fn extract_decoder_config(data: &[u8]) -> Option<DecConfRec> {
@@ -92,20 +91,9 @@ fn get_video_timescale(data: &[u8]) -> Option<u32> {
     None
 }
 
-fn handle_client(
-    mut stream: TcpStream,
-    mp4_data: &Arc<Vec<u8>>,
-    track: &Arc<Vec<u8>>,
-    infos: &Arc<Vec<SampleInfo>>,
-    param_len: usize,
-    start_time: Instant,
-    timescale: u32,
-) {
+fn handle_client(mut stream: TcpStream, mp4_data: &[u8], params: &[u8], clients: &Arc<Mutex<Vec<TcpStream>>>) {
     let mut buf = [0u8; 1024];
-    let n = match stream.read(&mut buf) {
-        Ok(n) => n,
-        Err(_) => return,
-    };
+    let n = match stream.read(&mut buf) { Ok(n) => n, Err(_) => return };
     let request = String::from_utf8_lossy(&buf[..n]);
     let path = request
         .lines()
@@ -113,36 +101,13 @@ fn handle_client(
         .and_then(|l| l.split_whitespace().nth(1))
         .unwrap_or("/");
     if path.ends_with(".h264") {
-        let elapsed = start_time.elapsed();
-        let elapsed_ts = (elapsed.as_secs_f64() * timescale as f64) as u64;
-        let mut idx = infos.len();
-        for (i, info) in infos.iter().enumerate() {
-            if info.start + info.dur as u64 > elapsed_ts {
-                idx = i;
-                break;
-            }
-        }
-        if idx == infos.len() {
-            let _ = stream.write_all(b"HTTP/1.1 410 GONE\r\nConnection: close\r\n\r\n");
-            return;
-        }
-        let total_len = param_len + (track.len() - infos[idx].offset);
-        let header = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: video/h264\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            total_len
-        );
-        if stream.write_all(header.as_bytes()).is_err() { return; }
-        if stream.write_all(&track[..param_len]).is_err() { return; }
-        for info in &infos[idx..] {
-            let abs = start_time
-                + Duration::from_secs_f64(info.start as f64 / timescale as f64);
-            let now = Instant::now();
-            if abs > now {
-                thread::sleep(abs - now);
-            }
-            let end = info.offset + info.len;
-            if stream.write_all(&track[info.offset..end]).is_err() { return; }
-        }
+        let header = b"HTTP/1.1 200 OK\r\nContent-Type: video/h264\r\nTransfer-Encoding: chunked\r\n\r\n";
+        if stream.write_all(header).is_err() { return; }
+        let len_hex = format!("{:X}\r\n", params.len());
+        if stream.write_all(len_hex.as_bytes()).is_err() { return; }
+        if stream.write_all(params).is_err() { return; }
+        if stream.write_all(b"\r\n").is_err() { return; }
+        clients.lock().unwrap().push(stream);
     } else if path.ends_with("video.mp4") {
         let header = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -182,24 +147,14 @@ fn main() -> std::io::Result<()> {
         }
     }
 
-    let mut track_bytes = Vec::new();
-    for nalu in &sps {
-        track_bytes.extend_from_slice(&[0, 0, 0, 1]);
-        track_bytes.extend_from_slice(nalu);
-    }
-    for nalu in &pps {
-        track_bytes.extend_from_slice(&[0, 0, 0, 1]);
-        track_bytes.extend_from_slice(nalu);
-    }
-    let param_len = track_bytes.len();
+    let mut params = Vec::new();
+    for nalu in &sps { params.extend_from_slice(&[0,0,0,1]); params.extend_from_slice(nalu); }
+    for nalu in &pps { params.extend_from_slice(&[0,0,0,1]); params.extend_from_slice(nalu); }
 
     let mut infos = Vec::new();
     for s in &samples {
-        let offset = track_bytes.len();
         let bytes = avc::convert_sample_to_bytestream(&s.bytes);
-        let len = bytes.len();
-        track_bytes.extend_from_slice(&bytes);
-        infos.push(SampleInfo { start: s.start, dur: s.dur, offset, len });
+        infos.push(SampleInfo { start: s.start, dur: s.dur, data: bytes });
     }
 
     let duration_ts = infos
@@ -209,10 +164,31 @@ fn main() -> std::io::Result<()> {
     let duration = Duration::from_secs_f64(duration_ts as f64 / timescale as f64);
 
     let mp4_data = Arc::new(file_data);
-    let track_bytes = Arc::new(track_bytes);
+    let params = Arc::new(params);
     let infos = Arc::new(infos);
 
+    let clients: Arc<Mutex<Vec<TcpStream>>> = Arc::new(Mutex::new(Vec::new()));
+
     let start_time = Instant::now();
+    let streamer_clients = Arc::clone(&clients);
+    let stream_infos = Arc::clone(&infos);
+    thread::spawn(move || {
+        for info in &*stream_infos {
+            let target = start_time + Duration::from_secs_f64(info.start as f64 / timescale as f64);
+            let now = Instant::now();
+            if target > now { thread::sleep(target - now); }
+            let chunk_len = format!("{:X}\r\n", info.data.len());
+            let mut guard = streamer_clients.lock().unwrap();
+            guard.retain(|s| {
+                s.write_all(chunk_len.as_bytes()).is_ok() &&
+                s.write_all(&info.data).is_ok() &&
+                s.write_all(b"\r\n").is_ok()
+            });
+        }
+        let mut guard = streamer_clients.lock().unwrap();
+        guard.retain(|s| s.write_all(b"0\r\n\r\n").is_ok());
+    });
+
     let listener = TcpListener::bind("127.0.0.1:8080")?;
     listener.set_nonblocking(true)?;
     println!("Serving {} on http://localhost:8080", mp4_path.display());
@@ -221,15 +197,14 @@ fn main() -> std::io::Result<()> {
         match listener.accept() {
             Ok((s, _)) => {
                 let mp4 = Arc::clone(&mp4_data);
-                let track = Arc::clone(&track_bytes);
-                let info = Arc::clone(&infos);
-                let st = start_time;
-                std::thread::spawn(move || {
-                    handle_client(s, &mp4, &track, &info, param_len, st, timescale);
+                let params = Arc::clone(&params);
+                let client_list = Arc::clone(&clients);
+                thread::spawn(move || {
+                    handle_client(s, &mp4, &params, &client_list);
                 });
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(100));
             }
             Err(e) => eprintln!("Connection failed: {e}"),
         }
