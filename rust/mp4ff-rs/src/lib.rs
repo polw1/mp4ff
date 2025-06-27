@@ -21,9 +21,6 @@ pub use subs::*;
 mod video_track;
 pub use video_track::{extract_avc_track, Sample as VideoSample, Error as VideoError};
 
-mod h264decoder;
-pub use h264decoder::{Decoder, DecodedYUV, H264Error};
-
 #[cfg(test)]
 mod metadata_tests {
     use super::read_mp4_metadata;
