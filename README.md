@@ -62,7 +62,7 @@ Run the server with your MP4 file:
 ```bash
 cargo run --bin track_server path/to/video.mp4
 ```
-Open `http://localhost:8080/track.html` in a browser or open `http://localhost:8080/video.h264` directly in VLC.
+Open `http://localhost:8080/video.h264` in VLC or another player that can stream raw H.264.
 
 ## Packages
 

@@ -56,7 +56,7 @@ fn extract_decoder_config(data: &[u8]) -> Option<DecConfRec> {
     None
 }
 
-fn handle_client(mut stream: TcpStream, html: &[u8], track: &[u8]) {
+fn handle_client(mut stream: TcpStream, track: &[u8]) {
     let mut buf = [0u8; 1024];
     let n = match stream.read(&mut buf) {
         Ok(n) => n,
@@ -76,12 +76,8 @@ fn handle_client(mut stream: TcpStream, html: &[u8], track: &[u8]) {
         let _ = stream.write_all(header.as_bytes());
         let _ = stream.write_all(track);
     } else {
-        let header = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            html.len()
-        );
+        let header = "HTTP/1.1 404 NOT FOUND\r\nConnection: close\r\n\r\n";
         let _ = stream.write_all(header.as_bytes());
-        let _ = stream.write_all(html);
     }
 }
 
@@ -92,8 +88,6 @@ fn main() -> std::io::Result<()> {
     } else {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("files/video.mp4")
     };
-    let html_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/files/track.html");
-    let html = fs::read(&html_path)?;
     let file_data = fs::read(&mp4_path)?;
     let samples = extract_avc_track(&file_data).expect("failed to parse avc track");
 
@@ -129,7 +123,7 @@ fn main() -> std::io::Result<()> {
     println!("Serving {} on http://localhost:8080", mp4_path.display());
     for stream in listener.incoming() {
         match stream {
-            Ok(s) => handle_client(s, &html, &track_bytes),
+            Ok(s) => handle_client(s, &track_bytes),
             Err(e) => eprintln!("Connection failed: {e}"),
         }
     }
