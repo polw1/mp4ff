@@ -56,7 +56,7 @@ fn extract_decoder_config(data: &[u8]) -> Option<DecConfRec> {
     None
 }
 
-fn handle_client(mut stream: TcpStream, track: &[u8]) {
+fn handle_client(mut stream: TcpStream, mp4_data: &[u8], track: &[u8]) {
     let mut buf = [0u8; 1024];
     let n = match stream.read(&mut buf) {
         Ok(n) => n,
@@ -75,6 +75,13 @@ fn handle_client(mut stream: TcpStream, track: &[u8]) {
         );
         let _ = stream.write_all(header.as_bytes());
         let _ = stream.write_all(track);
+    } else if path.ends_with("video.mp4") {
+        let header = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            mp4_data.len()
+        );
+        let _ = stream.write_all(header.as_bytes());
+        let _ = stream.write_all(mp4_data);
     } else {
         let header = "HTTP/1.1 404 NOT FOUND\r\nConnection: close\r\n\r\n";
         let _ = stream.write_all(header.as_bytes());
@@ -123,7 +130,7 @@ fn main() -> std::io::Result<()> {
     println!("Serving {} on http://localhost:8080", mp4_path.display());
     for stream in listener.incoming() {
         match stream {
-            Ok(s) => handle_client(s, &track_bytes),
+            Ok(s) => handle_client(s, &file_data, &track_bytes),
             Err(e) => eprintln!("Connection failed: {e}"),
         }
     }
